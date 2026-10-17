@@ -1,0 +1,265 @@
+# -*- coding: utf-8 -*-
+"""Arena 回复验证入库（通用）。
+
+用法: python Arena入库.py <回复文件> <号段起> <号段止> <备料目录> <来源ID逗号分隔>
+号段起/止 指证据号 E-XXXX 的数值范围；卡片只接受该范围内出现的 K/S/C 编号。
+"""
+import importlib.util
+import json
+import pathlib
+import re
+import shutil
+import sys
+
+OUT = pathlib.Path(r'C:\Users\赵豪\dsh\交易知识体系汇编')
+KEEP = re.compile(r'[\u4e00-\u9fffA-Za-z0-9]')
+
+
+def sm(s):
+    o, i = [], []
+    for k, ch in enumerate(s):
+        if KEEP.match(ch):
+            o.append(ch); i.append(k)
+    return ''.join(o), i
+
+
+# 卡片标题：容忍模型漏写 markdown 井号（2026-10-01 实测有一组整组都没写 `#`，
+# 旧正则把卡片全丢了、只留下证据行）。允许：可选井号、可选粗体星号、行首空白。
+HEAD_RE = re.compile(r'(?m)^[ \t]*(?:#{1,6}[ \t]*)?\*{0,2}((?:补充[ \t]*)?[KSC]-\d{4,5})\*{0,2}[ \t]*(.*)$')
+TAIL_RE = re.compile(r'(?m)^[ \t]*(?:#{1,6}[ \t]*)?(?:证据清单|底本层级与疑点|与已有卡的关系|tsv)\b')
+
+
+def parse_cards(raw):
+    # 先砍掉尾部章节：这些章节里的行也可能以卡号开头（如「与已有卡的关系」逐条写
+    # “K-0720 和 K-0415 相近……”），若不先切断，会被当成卡片标题，且因正文更长而
+    # 覆盖真正的卡片（2026-10-01 实测把 K-0720 的真身冲掉了）。
+    cut = None
+    for m in TAIL_RE.finditer(raw):
+        cut = m.start() if cut is None else min(cut, m.start())
+    region = raw[:cut] if cut is not None else raw
+    heads = []
+    for m in HEAD_RE.finditer(region):
+        cid = re.sub(r'\s+', '', m.group(1))
+        name = m.group(2).strip().strip('*').strip().lstrip('：:').strip()
+        # 2026-10-06：模型有时把「关联卡片」写成一行枚举，行首没有井号：
+        #   K-3851（混沌区间脱离判定）、K-30002（2674不是支撑而是引信）、K-2165（反对左侧交易）。
+        # HEAD_RE 为了容忍「漏写 #」而允许无井号，于是这一行被当成一张新卡，写出一个
+        # 文件名是一串卡号的垃圾卡（实测批063 末组）。判据：标题紧接着又是一串卡号 ⇒ 枚举，跳过。
+        if (re.match(r'^[（(][^）)]{0,40}[）)]\s*[、,，]\s*[KSC]-\d{4,5}', name)
+                or re.match(r'^[KSC]-\d{4,5}\b', name)):
+            continue
+        heads.append((cid, name, m.end()))
+    cards = {}
+    for i, (cid, name, start) in enumerate(heads):
+        end = heads[i + 1][2] if i + 1 < len(heads) else len(region)
+        body = region[start:end].rstrip()
+        if not body:
+            continue
+        if cid not in cards or len(body) > len(cards[cid][1]):
+            cards[cid] = (name, body)
+    return cards
+
+
+def card_limits(out=None):
+    """返回卡片号段上下界。
+
+    主仓库保持旧规则「现有最大 + 60」。分片工作区由 号段.json 明确保留区间，
+    因为分片目录会复制主卡片作为重复判断基线，不能再从复制品推导可写上限。
+
+    2026-10-06：主仓 K 用满 1-3854 之后，驱动按 RESERVED 把号段跳到保留区之后的
+    首个空闲块（K→30000、S/C→20000），而旧规则「≤现有最大+60」会把这个**合法跳跃**
+    当成越界拒收——实测批063 末组 9 张 K 卡全被拒、来源却照样标了「已抽取」，
+    只能人工补写。这里补上第三个返回值：保留区之后的首个空闲块起点，仍拒绝其它乱跳
+    （例如模型幻觉出的 K-99999）。
+    """
+    base = out or OUT
+    meta = base.parent / '号段.json' if out else None
+    if meta and meta.is_file():
+        cfg = json.loads(meta.read_text(encoding='utf-8'))
+        return {letter: tuple(cfg[letter]) for letter in ('K', 'S', 'C')}
+    # 与 Arena驱动_连续抽取.py 的 RESERVED 手工同步：分片已占用的区间
+    RESERVED = {'K': [(3855, 29999)], 'S': [(3556, 19999)], 'C': [(3800, 19999)]}
+
+    def next_free(letter, n):
+        for _ in range(500):
+            if not any(lo <= n <= hi for lo, hi in RESERVED.get(letter, [])):
+                return n
+            n = max(hi for lo, hi in RESERVED[letter] if lo <= n <= hi) + 1
+        return n
+
+    limits = {}
+    for letter, d in (('K', '02_知识点'), ('S', '03_方法与策略'), ('C', '04_案例')):
+        nums = [int(q.stem.split('_')[0].split('-')[1]) for q in (base / d).glob('%s-*.md' % letter)]
+        mx = max(nums or [0])
+        limits[letter] = (0, mx + 60, next_free(letter, mx + 1))
+    return limits
+
+
+def main():
+    reply, elo, ehi, stage, srcs = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), pathlib.Path(sys.argv[4]), sys.argv[5].split(',')
+    # 可选第 6 参数：分片工作区根目录（如 C:/.../分片工作区/Codex/out）。
+    # 缺省走主仓库；分片时卡片、证据索引、来源去向台账全部落到分片目录，主仓库只读。
+    shard = pathlib.Path(sys.argv[6]) if len(sys.argv) > 6 else None
+    out = shard or OUT
+    raw = pathlib.Path(reply).read_text(encoding='utf-8')
+    cards, tsv, seen = parse_cards(raw), [], set()
+    for line in raw.splitlines():
+        m = re.match(r'^(E-(\d{4,5}))\s*(SRC-\d{6})\s*(.*)$', line.strip())
+        if m and elo <= int(m.group(2)) <= ehi and m.group(1) not in seen:
+            # 只拿「原文摘录」列去回源校验。旧写法把整行剩余（位置+摘录+用途）一起校验，
+            # 于是「位置」列凑够 8 个字就能蒙过校验（2026-10-01 实测 E-3792 就是这样过的）。
+            cols = [c.strip() for c in re.split(r'\t+', line.strip())]
+            quote = cols[3] if len(cols) >= 4 else m.group(4)
+            seen.add(m.group(1))
+            tsv.append('\t'.join([m.group(1), m.group(3), re.sub(r'\s+', ' ', quote).strip()]))
+    # 卡片号段过滤：只保留该号段内首次出现的编号（K/S/C 各自区间由调用方通过 elo/ehi 之外另行约束，这里用「已存在则跳过」兜底）
+    SRC = {}
+    for f in stage.glob('*.md'):
+        rr = f.read_text(encoding='utf-8')
+        SRC[f.name.split('_')[0]] = (rr, sm(rr))
+
+    def verify(sid, text):
+        if sid not in SRC:
+            return '', 0
+        rr, (flat, imap) = SRC[sid]
+        tgt, _ = sm(text)
+        best = (0, -1)
+        for i in range(len(tgt)):
+            j = i + best[0] + 1
+            while j <= len(tgt):
+                if flat.find(tgt[i:j]) < 0:
+                    break
+                j += 1
+            seg = tgt[i:j-1]
+            if len(seg) > best[0]:
+                best = (len(seg), flat.find(seg))
+        blen, fstart = best
+        if blen < 8:
+            return '', 0
+        return re.sub(r'\s+', '', rr[imap[fstart]:imap[fstart + blen - 1] + 1]), blen
+
+    rows, ok, bad = [], 0, []
+    for line in tsv:
+        c = line.split('\t')
+        q, _ = verify(c[1], '\t'.join(c[2:]))
+        if q:
+            ok += 1
+            rows.append([c[0], c[1], '', q, '', '2026-09-29'])
+        else:
+            bad.append((c[0], c[2][:60]))
+    print('证据 %d | 验证通过 %d | 未通过 %s' % (len(tsv), ok, [b[0] for b in bad] or '无'))
+    # 护栏 A：回复里明显有证据号，却一条都没解析出来
+    if not tsv and re.search(r'E-\d{4,5}', raw):
+        print('!! 回复里出现了证据号，但 TSV 一条都没解析出来（格式不符或抓错了块）。已中止写卡。')
+        print('!! 回复里出现的证据号样本: %s' % sorted(set(re.findall(r'E-\d{4,5}', raw)))[:8])
+        sys.exit(3)
+    # 护栏 B：全部证据验证失败
+    if tsv and ok == 0:
+        print('!! 全部证据验证失败——多半是备料目录与本次来源不匹配。已中止写卡，避免产生悬空引用。')
+        print('!! 备料目录里实际是: %s' % ', '.join(sorted(SRC)) or '(空)')
+        print('!! 本次来源应为: %s' % ','.join(srcs))
+        sys.exit(2)
+    # 护栏 C：卡片引用的证据必须都能落到索引里，否则中止写卡。
+    # 2026-10-01 实测：某组 17 条「原文摘录」其实是缩写摘要，回源校验不过，
+    # 却照样把卡写了进去，留下 19 条悬空证据——这里改成 fail-closed。
+    _evp = (shard or OUT) / '01_资料与索引/证据索引.tsv'
+    _have = set(re.findall(r'(?m)^(E-\d{4,5})\t', _evp.read_text(encoding='utf-8')))
+    _will = _have | {r[0] for r in rows}
+    _refs = set()
+    for _cid, (_name, _body) in cards.items():
+        _refs |= set(re.findall(r'E-\d{4,5}', _body))
+    _miss = sorted(_refs - _will)
+    if _miss:
+        print('!! 跳过 %d 个未逐字回源的证据及其引用，保留本组已验证内容: %s'
+              % (len(_miss), ','.join(_miss[:12])))
+        for _cid, (_name, _body) in list(cards.items()):
+            for _bad in _miss:
+                _body = _body.replace(_bad, '证据未逐字回源')
+            cards[_cid] = (_name, _body)
+    n = 0
+    lim = card_limits(out if shard else None)
+    over = []
+    for cid, (name, body) in sorted(cards.items()):
+        if cid.startswith('补充'):
+            target = cid.replace('补充', '').strip()
+            if shard:
+                # 分片不复制/改写主卡；把补充保存为补丁，合并阶段再追加到主卡。
+                patch_dir = out / '补充卡片'
+                patch_dir.mkdir(parents=True, exist_ok=True)
+                safe = re.sub(r'[\\/:*?"<>|]', '', name)[:60]
+                p = patch_dir / ('%s_%s.md' % (target, safe))
+                if not p.exists():
+                    p.write_text('目标卡片：%s\n补充标题：%s\n\n%s\n' % (target, name, body.rstrip()), encoding='utf-8')
+                    n += 1
+                    print('  保存补丁 %s → %s' % (cid, p.name))
+            else:
+                f = []
+                for d in ('02_知识点', '03_方法与策略', '04_案例'):
+                    f += list((out / d).glob('%s_*.md' % target))
+                if f:
+                    t = f[0].read_text(encoding='utf-8')
+                    if name[:16] not in t:
+                        f[0].write_text(t.rstrip() + '\n\n---\n\n## 补充：' + name + '\n' + body.rstrip() + '\n', encoding='utf-8')
+                        n += 1
+                        print('  追加 %s → %s' % (cid, f[0].name))
+            continue
+        d = {'K': '02_知识点', 'S': '03_方法与策略', 'C': '04_案例'}[cid[0]]
+        num = int(cid.split('-')[1])
+        _lim = lim[cid[0]]
+        _nf = _lim[2] if len(_lim) > 2 else None   # 保留区之后的首个空闲块起点（2026-10-06）
+        if not (_lim[0] <= num <= _lim[1] or (_nf is not None and _nf <= num <= _nf + 60)):
+            over.append(cid)
+            continue
+        safe = re.sub(r'[\\/:*?"<>|]', '', name)[:40]
+        p = out / d / ('%s_%s.md' % (cid, safe))
+        if not p.exists():
+            p.write_text('# %s %s\n%s\n' % (cid, name, body.rstrip()), encoding='utf-8')
+            n += 1
+            print('  新建 %s %s' % (cid, name[:38]))
+    evp = out / '01_资料与索引/证据索引.tsv'
+    have = set(re.findall(r'(?m)^(E-\d{4,5})\t', evp.read_text(encoding='utf-8')))
+    add = [r for r in rows if r[0] not in have]
+    with open(evp, 'a', encoding='utf-8') as fh:
+        for r in add:
+            fh.write('\t'.join(r) + '\n')
+    # 台账
+    p = out / '01_资料与索引/来源去向.tsv'
+    lines = p.read_text(encoding='utf-8').splitlines()
+    head = lines[0].split('\t')
+    si, sti = head.index('source_id'), head.index('处理状态')
+    # 只把「回复正文里真正出现的来源」标成已抽取；没覆盖到的留给下一轮重跑
+    covered = {s for s in srcs if s in raw}
+    # 2026-10-06：有卡片号被越界拒收时**一律不标已抽取**——否则这一组的知识就永久丢了。
+    # 实测批063 末组：9 张 K 被护栏拒收，来源却照样标了「已抽取」，驱动再也不会重跑这组，
+    # 只能人工补写。宁可让本组重跑（卡片写入是幂等的：已存在的卡不覆盖、证据按 E 号去重）。
+    if over:
+        covered = set()
+    missing = [s for s in srcs if s not in covered]
+    for i, l in enumerate(lines[1:], 1):
+        c = l.split('\t')
+        if len(c) > sti and c[si] in covered and c[sti] != '已抽取':
+            c[sti] = '已抽取'
+            lines[i] = '\t'.join(c)
+    p.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    if missing:
+        print('!! 本组只覆盖 %d/%d 份，未覆盖（留待重跑）: %s' % (len(covered), len(srcs), ','.join(missing)))
+    if over:
+        print('!! 越界卡片号（未写入，超过现有最大+60）: %s' % ','.join(over))
+        print('!! 因有卡片被拒，本组来源一律不标「已抽取」，留给下一轮重跑')
+    ids = set(re.findall(r'(?m)^(E-\d{4,5})\t', evp.read_text(encoding='utf-8')))
+    _base = out  # 分片模式只统计分片目录，避免把主仓库的存量误报成悬空
+    allc = {q.stem.split('_')[0] for d in ('02_知识点', '03_方法与策略', '04_案例') for q in (_base / d).glob('*.md')}
+    be = bc = nosrc = 0
+    for d in ('02_知识点', '03_方法与策略', '04_案例'):
+        for q in (_base / d).glob('*.md'):
+            t = q.read_text(encoding='utf-8')
+            be += sum(1 for e in set(re.findall(r'E-\d{4,5}', t)) if e not in ids)
+            bc += sum(1 for c in set(re.findall(r'\b([KSC]-\d{4,5})\b', t)) if c not in allc)
+            if not re.search(r'^> 来源：SRC-', t, re.M):
+                nosrc += 1
+    print('卡片 %d | 新卡 %d | 证据入索引 %d | 悬空证据 %d | 悬空卡片 %d | 缺来源行 %d | 证据总 %d'
+          % (len(allc), n, len(add), be, bc, nosrc, len(ids)))
+
+
+if __name__ == '__main__':
+    main()

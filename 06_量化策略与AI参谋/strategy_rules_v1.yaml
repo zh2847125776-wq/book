@@ -1,0 +1,112 @@
+# ==============================================================================
+# 博主交易体系标准化策略规则书 (Strategy DSL: v1.0)
+# 基于全库 38,783 篇卡片与 61,227 条证据提炼
+# 供人类阅读、Python 特征引擎计算、AI 决策参谋审查以及量化回测执行
+# ==============================================================================
+
+version: "1.0.0"
+author: "交易知识体系汇编·量化工程组"
+updated_at: "2026-10-17"
+
+# ------------------------------------------------------------------------------
+# 全局硬性风控门禁 (Global Risk Filters)
+# ------------------------------------------------------------------------------
+global_market_regime:
+  market_index_symbol: "000001.SH"       # 上证指数 / 创业板指联动
+  regime_rules:
+    - name: "DIF零轴绝对安全滤网"
+      formula: "MACD_DIF(index_daily) > 0.0"
+      fail_action: "DISALLOW_HEAVY_POSITION" # DIF<0 时禁止半仓以上多头
+      level: "STRONG"
+      evidence_ref: "S-1452"
+    - name: "指数MA20多空分水岭"
+      formula: "index_close > index_ma20"
+      fail_action: "REQUIRE_STRICT_DEFENSE" # 指数跌破20日线，个股条件上浮一级
+      level: "MEDIUM"
+      evidence_ref: "S-1451"
+
+risk_management_standards:
+  min_risk_reward_ratio: 2.5             # 最小预期客观盈亏比 >= 2.5:1
+  max_single_trade_risk_pct: 0.015       # 单笔最大本金亏损比例 <= 1.5%
+  atr_period: 14                         # 波动率自适应计算周期
+  stop_loss_margin_atr_factor: 0.20      # 止损余量缓冲系数 (0.20 * ATR)
+
+# ------------------------------------------------------------------------------
+# 战法一：箱体破底翻 (2B结构假跌破反转模型)
+# 对应卡片：S-3440, S-1450, K-0053, K-0111
+# ------------------------------------------------------------------------------
+strategies:
+  - id: "STRAT_01_BOX_BREAK_REVERSAL"
+    name: "箱体破底翻交易法 (2B反转)"
+    category: "反转突破 / 假跌破收复"
+    applicable_timeframe: "DAILY"
+    
+    # 1. 选股与前置形态 (Setup)
+    setup:
+      box_lookback_bars: 30              # 箱体回溯K线条数 (20~45)
+      condition_1: "box_high - box_low >= 1.5 * ATR_14" # 具备足够的箱体振幅空间
+      condition_2: "min_low_in_window < box_low"        # 发生过击穿箱体下限 (一号位P1)
+      condition_3: "bars_since_breakout <= 5"            # 跌破后5根K线内迅速拉回 (诱空时效性)
+
+    # 2. 入场触发条件 (Entry Trigger)
+    trigger:
+      timing: "14:50_PRE_CLOSE"          # 尾盘准收盘买入，规避日内虚假脉冲
+      signal_rules:
+        - "close >= box_low"             # 收盘价有效站回箱体下限 (二号位破翻)
+        - "close > open"                 # 当日必须收阳线
+        - "volume >= 0.8 * MA_VOL5"      # 量能温和放大，拒绝死寂无量
+
+    # 3. 排除与失效项 (Filters)
+    exclusions:
+      - "today_upper_shadow_ratio > 0.40" # 长上影线诱多假突破排除
+      - "MA_60_slope < -0.05 and close < MA_60" # 处于长期暴跌深水区且60日线陡峭向下
+
+    # 4. 铁血止损与退出机制 (Exit & Risk)
+    stop_loss:
+      type: "DYNAMIC_SUPPORT_WITH_MARGIN"
+      base_support: "min_low_in_window"   # 以跌破后的波段极限低点(一号位)为基准
+      margin: "max(0.02, 0.20 * ATR_14)" # 叠加动态余量
+      formula: "base_support - margin"
+      rule: "跌破此价盘中无条件止损，不可心存侥幸"
+
+    # 5. 目标止盈与分批管理 (Take Profit)
+    take_profit:
+      first_target: "box_high"            # 第一目标位：箱体上限
+      first_action: "SELL_HALF (平仓50%)"
+      second_target: "box_high + (box_high - box_low)" # 第二目标位：箱体翻倍高度
+      trail_exit: "MA_10_BREAK (跌破10日线移动止盈)"
+
+# ------------------------------------------------------------------------------
+# 战法二：5x20均线交叉共振与多头回测
+# 对应卡片：S-1451, K-0004, K-3676, S-0082
+# ------------------------------------------------------------------------------
+  - id: "STRAT_02_MA5_CROSS_MA20_PULLBACK"
+    name: "5x20交叉共振回踩确认法"
+    category: "顺势回调 / 均线共振"
+    applicable_timeframe: "DAILY"
+    
+    # 1. 均线与多头架构 (Setup)
+    setup:
+      condition_1: "MA_20_slope >= 0.0"  # 20日线必须走平或向上拐头 (核心铁律)
+      condition_2: "cross_over(MA_5, MA_20, within_bars=3)" # 3天内发生 5穿20 金叉
+      condition_3: "close >= MA_20"      # 价格处于 20日线生命线上方
+
+    # 2. 触发买点：共振收阴回拉 (Trigger)
+    trigger:
+      timing: "14:50_PRE_CLOSE"
+      signal_rules:
+        - "close < open"                 # 交叉后出现回测阴线 (交叉共振收阴买入)
+        - "low >= MA_20 - (0.2 * ATR_14)"# 最低价回踩20日线获得精准支撑
+        - "volume < MA_VOL5 * 0.75"      # 回踩阴线必须严格缩量 (无恐慌抛压)
+
+    # 3. 止损与退出 (Exit)
+    stop_loss:
+      type: "MA20_DEFENSE"
+      base_support: "MA_20"
+      margin: "0.20 * ATR_14"
+      formula: "MA_20 - margin"
+      rule: "有效收盘跌破20日线缓冲带，立即止损"
+
+    take_profit:
+      target_ratio_vs_risk: 3.0          # 顺势交易追求 3 倍盈亏比
+      trail_exit: "MA_5_CROSS_UNDER_MA_20 (5日线下穿20日线死叉清仓)"

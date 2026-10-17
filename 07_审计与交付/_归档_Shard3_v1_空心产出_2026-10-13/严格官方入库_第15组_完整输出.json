@@ -1,0 +1,40 @@
+{
+  "group": 15,
+  "picks": [
+    "SRC-001006",
+    "SRC-000294"
+  ],
+  "pending": {
+    "batch": "批192",
+    "picks": [
+      "SRC-001006",
+      "SRC-000294"
+    ],
+    "kmin": 40112,
+    "kmax": 40119,
+    "smin": 20070,
+    "smax": 20074,
+    "cmin": 20070,
+    "cmax": 20074,
+    "emin": 70280,
+    "emax": 70299
+  },
+  "reply": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\分片工作区\\Shard3\\out\\07_审计与交付\\回复_第15组_SRC-001006_SRC-000294.md",
+  "reply_sha256": "99d3fa30b581e7c4bb317545ac5e6be6ca1ddea7737a7fbc40f395066439a2cb",
+  "official_path": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\工具\\分片_组.py",
+  "official_sha256": "73b98d99953b62d6c952a4d6263b4b5a80d4d7686710dd38e7721a8110c28aa1",
+  "expected_cards": 6,
+  "expected_evidence": 4,
+  "official_exit_code": 0,
+  "stdout": "证据 4 | 验证通过 4 | 未通过 无\n  新建 C-20070 2020年1月17日三大指数冲高回落与多空线拐轴底线及周量测算复盘\n  新建 C-20071 2025年6月6日期货锌空单中轨止损与橡胶破中轨出局及纸浆SFP多单复盘\n  新建 K-40112 均线粘合向下且多空线拐轴最后止盈止损与周线成交量预估观察\n  新建 K-40113 期货中轨止损退出与5分钟SFP配合箭头低吸止损设定观察\n  新建 S-20070 均线粘合向下配合多空线拐轴最后离场与周成交量折算方法\n  新建 S-20071 期货依托中轨风控与5分钟SFP配合箭头做多设损方法\n卡片 84 | 新卡 6 | 证据入索引 4 | 悬空证据 0 | 悬空卡片 0 | 缺来源行 0 | 证据总 60\n",
+  "stderr": "",
+  "recorded_at": "2026-10-13T01:23:29.369880+08:00",
+  "validated": {
+    "evidence_total": 4,
+    "evidence_passed": 4,
+    "failed": "无",
+    "cards": 6,
+    "indexed": 4
+  },
+  "guard": "PASS"
+}

@@ -1,0 +1,40 @@
+{
+  "group": 2,
+  "picks": [
+    "SRC-000114",
+    "SRC-000022"
+  ],
+  "pending": {
+    "batch": "批191",
+    "picks": [
+      "SRC-000114",
+      "SRC-000022"
+    ],
+    "kmin": 40008,
+    "kmax": 40015,
+    "smin": 20005,
+    "smax": 20009,
+    "cmin": 20005,
+    "cmax": 20009,
+    "emin": 70020,
+    "emax": 70039
+  },
+  "reply": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\分片工作区\\Shard3\\out\\07_审计与交付\\回复_第2组_SRC-000114_SRC-000022.md",
+  "reply_sha256": "c247e68aae76c3640a4ada75930925b0219d0f8df4df9e1489fcafbc0d38b4d9",
+  "official_path": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\工具\\分片_组.py",
+  "official_sha256": "73b98d99953b62d6c952a4d6263b4b5a80d4d7686710dd38e7721a8110c28aa1",
+  "expected_cards": 6,
+  "expected_evidence": 4,
+  "official_exit_code": 0,
+  "stdout": "证据 4 | 验证通过 4 | 未通过 无\n  新建 C-20005 2024年3月28日四象图与异色K线专题开场复盘\n  新建 C-20006 实盘复盘中RSI与BOLL组合指标参数及读数观察复盘\n  新建 K-40008 2024年3月28日四象图与异色K线交易细节专题讲解开场记录\n  新建 K-40009 实盘复盘中RSI与BOLL布林带组合指标参数与数值显示观察\n  新建 S-20005 四象图与异色K线交易细节专题观察与学习安排方法\n  新建 S-20006 结合RSI与BOLL布林带组合指标辅助观察盘面动能的方法\n卡片 12 | 新卡 6 | 证据入索引 4 | 悬空证据 0 | 悬空卡片 0 | 缺来源行 0 | 证据总 8\n",
+  "stderr": "",
+  "recorded_at": "2026-10-13T00:32:32.619162+08:00",
+  "validated": {
+    "evidence_total": 4,
+    "evidence_passed": 4,
+    "failed": "无",
+    "cards": 6,
+    "indexed": 4
+  },
+  "guard": "PASS"
+}

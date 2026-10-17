@@ -1,0 +1,40 @@
+{
+  "group": 18,
+  "picks": [
+    "SRC-001007",
+    "SRC-000295"
+  ],
+  "pending": {
+    "batch": "批193",
+    "picks": [
+      "SRC-001007",
+      "SRC-000295"
+    ],
+    "kmin": 40136,
+    "kmax": 40143,
+    "smin": 20085,
+    "smax": 20089,
+    "cmin": 20085,
+    "cmax": 20089,
+    "emin": 70340,
+    "emax": 70359
+  },
+  "reply": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\分片工作区\\Shard3\\out\\07_审计与交付\\回复_第18组_SRC-001007_SRC-000295.md",
+  "reply_sha256": "77c3fec719c419fd9db1718d47c60fe8ec820e1e8256e1949920d95a7d52af26",
+  "official_path": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\工具\\分片_组.py",
+  "official_sha256": "73b98d99953b62d6c952a4d6263b4b5a80d4d7686710dd38e7721a8110c28aa1",
+  "expected_cards": 6,
+  "expected_evidence": 4,
+  "official_exit_code": 0,
+  "stdout": "证据 4 | 验证通过 4 | 未通过 无\n  新建 C-20085 2020年1月20日节前最后一周指数MA10均线3091.67复盘\n  新建 C-20086 2025年6月9日期货黄金APL加LPA平台向下空单与原油化工橡胶玻璃放弃复\n  新建 K-40136 2020年1月20日节前最后一周指数MA10均线读数观察\n  新建 K-40137 期货APL加LPA平台向下顺势给空单与板块分化空间不足放弃观察\n  新建 S-20085 节前最后一周跟踪指数MA10均线位置的观测方法\n  新建 S-20086 结合APL与LPA平台方向顺势开单并过滤小空间震荡品种的方法\n卡片 102 | 新卡 6 | 证据入索引 4 | 悬空证据 0 | 悬空卡片 0 | 缺来源行 0 | 证据总 72\n",
+  "stderr": "",
+  "recorded_at": "2026-10-13T01:31:01.543601+08:00",
+  "validated": {
+    "evidence_total": 4,
+    "evidence_passed": 4,
+    "failed": "无",
+    "cards": 6,
+    "indexed": 4
+  },
+  "guard": "PASS"
+}

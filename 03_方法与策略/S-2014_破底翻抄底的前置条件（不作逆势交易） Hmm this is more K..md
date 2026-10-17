@@ -1,0 +1,4 @@
+# S-2014 破底翻抄底的前置条件（不作逆势交易）? Hmm this is more K.
+
+
+S-2014 创指空间测算：四个点/4.6 对 1.6止损 = 4.8，1比3底线，不值得做（2179）＋60分钟底背离空间（2178 "60分钟涨个多空线就这么点空间、盈亏比根本不到1比3、不值得做"）。This is a method: 空间/盈亏比评估. Include both lessons' quotes → but cross-lesson merging concern again. Both are about the same method applied on consecutive days; I'll present as S-2014 with 规则版本 referencing 2178 as precedent and 2179 as the quantified version. Hmm, risky given rule 3. I'll write the card with a single 规则版本 drawn from 2179 (with numbers) and note 2178 in 版本分歧/衔接 as its own statement. Actually the 2178 quote "60分钟周期看底背离…盈亏比根本不到1比3、不值得做" is also part of the same 盈亏比 concept. I think it's fine to cite both as evidence since it's the same single concept (盈亏比1比3底线) taught in consecutive lessons of the same series. I'll note in card that both citations are separate lesson statements, no merging of parameters across them beyond what each states.

@@ -1,0 +1,212 @@
+# -*- coding: utf-8 -*-
+"""分片工作区单组推进器（Codex / Claude 用，不碰 Arena 会话与主仓库）。
+
+  python -X utf8 工具/分片_组.py <Codex|Claude> 取组
+    → 从本分片批次范围里取最早未做的一组（1-2 份来源），备料到分片 stage，
+      按保留号段分配 K8/S5/C5/E20，生成内联提示到 reply/pending_prompt.md，
+      组信息记 reply/pending_group.json。号段不够即停并报号段用尽。
+
+  python -X utf8 工具/分片_组.py <Codex|Claude> 入库 <回复文件>
+    → 用 pending 组信息调 Arena入库.py（第 6 参数指向分片 out），逐字回源验证；
+      成功则归档回复、记账并清除 pending；失败保留 pending 供重做。
+
+每组预算与主驱动一致（2 份来源 → K8/S5/C5/E20），三路号段互不重叠。
+"""
+import csv
+import importlib.util
+import json
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+
+BASE = pathlib.Path(r'C:\Users\赵豪\dsh')
+OUT = BASE / '交易知识体系汇编'
+BUDGET = {'K': 8, 'S': 5, 'C': 5, 'E': 20}
+SKIP = {'已抽取', '工具脚本·无可用内容', '无可用交易内容'}
+
+
+def shard_root(name):
+    root = OUT / '分片工作区' / name
+    if not (root / '号段.json').is_file():
+        raise SystemExit('分片不存在，先跑 工具/分片_准备.py: %s' % root)
+    return root
+
+
+def ledger_done(ledger):
+    lines = ledger.read_text(encoding='utf-8').splitlines()
+    h = lines[0].split('\t')
+    si, sti = h.index('source_id'), h.index('处理状态')
+    return {l.split('\t')[si] for l in lines[1:]
+            if len(l.split('\t')) > sti and l.split('\t')[sti] in SKIP}
+
+
+def batch_rows(n):
+    p = OUT / ('工作分片/批%03d_清单.tsv' % n)
+    if not p.is_file():
+        return []
+    return list(csv.DictReader(open(p, encoding='utf-8'), delimiter='\t'))
+
+
+def resolve_src(r):
+    complete = (r.get('完整稿(阅读对象)') or '').strip()
+    trimmed = (r.get('精简稿(导航用)') or '').strip()
+    rel = complete or trimmed
+    if not rel:
+        return None, '完整稿和精简稿都为空'
+    src = BASE / rel
+    if not src.is_file():
+        return None, '找不到文件 %s' % rel
+    return src, ('' if complete else '仅精简稿')
+
+
+def own_cards_note(root, limit=6000):
+    items = []
+    for d in ('02_知识点', '03_方法与策略', '04_案例'):
+        for p in sorted((root / 'out' / d).glob('*.md')):
+            try:
+                h = p.read_text(encoding='utf-8').splitlines()[0].strip()
+            except Exception:
+                continue
+            items.append('- ' + h)
+            if sum(len(x) + 1 for x in items) > limit:
+                items.append('（本分片更早的卡未列出，拿不准就新建，不要复用主仓库之外的编号）')
+                return '\n'.join(items)
+    return '\n'.join(items) if items else '（本分片暂无自建卡）'
+
+
+def cmd_fetch(name):
+    root = shard_root(name)
+    meta = json.loads((root / '号段.json').read_text(encoding='utf-8'))
+    nxt_p = root / 'next_ids.json'
+    if nxt_p.is_file():
+        nxt = json.loads(nxt_p.read_text(encoding='utf-8'))
+    else:
+        nxt = {k: meta[k][0] for k in ('K', 'S', 'C', 'E')}
+    done = ledger_done(root / 'out' / '01_资料与索引/来源去向.tsv')
+    picks, batch_name = [], ''
+    for a, b in meta['batches']:
+        for n in range(a, b + 1):
+            for r in batch_rows(n):
+                if r['source_id'] not in done:
+                    picks.append(r)
+                    if not batch_name:
+                        batch_name = '批%03d' % n
+                    if len(picks) >= 2:
+                        break
+            if len(picks) >= 2:
+                break
+        if picks:
+            break
+    if not picks:
+        print('全部完成：本分片批次范围无未抽取来源')
+        return
+    # 先备料（缺料直接退出，不消耗号段）
+    staged = []
+    for r in picks:
+        src, flag = resolve_src(r)
+        if src is None:
+            print('备料不全，停止: %s %s' % (r['source_id'], flag))
+            raise SystemExit(7)
+        staged.append((r, src, flag))
+    # 再分配号段（先持久化指针，崩溃也不重号，顶多留空号）
+    ids = {}
+    for k in ('K', 'S', 'C', 'E'):
+        lo, hi = meta[k][0], meta[k][1]
+        if nxt[k] + BUDGET[k] - 1 > hi:
+            print('号段用尽 STOP：%s 已到 %d，上限 %d；报告进度等协调人重分配，不要自行越界。' % (k, nxt[k], hi))
+            raise SystemExit(6)
+        ids[k] = (nxt[k], nxt[k] + BUDGET[k] - 1)
+        nxt[k] += BUDGET[k]
+    nxt_p.write_text(json.dumps(nxt, ensure_ascii=False, indent=1), encoding='utf-8')
+    stage = root / 'stage'
+    if stage.exists():
+        shutil.rmtree(stage)
+    stage.mkdir(parents=True)
+    got = []
+    for r, src, flag in staged:
+        dst = stage / ('%s_%s' % (r['source_id'], src.name))
+        shutil.copy2(src, dst)
+        got.append((r, dst))
+        if flag:
+            print('受限底本 %s：仅使用精简稿，入库须标注「仅精简稿可核」' % r['source_id'])
+    spec = importlib.util.spec_from_file_location('gen', str(OUT / '工具/Arena任务_生成提示.py'))
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    note = '本组资料：' + '；'.join('%s（第%s课 %s，课型%s）' % (r['source_id'], r['课号'], r['主题'], r['课型']) for r, _ in got)
+    note += '。**若这些资料属于同一系列，注意不要跨系列串联策略；若与已有卡讲同一件事，写「补充 K-xxxx」不要新建。**'
+    note += '**请先核对底本层级**：若给的是"(增强版)"笔记而非完整稿，务必在卡片里标「仅增强稿可见」，不要写成完整稿。'
+    note += '\n\n本分片已自建卡（判重时与主仓库清单一并考虑，编号只用本次分配）：\n' + own_cards_note(root)
+    t = m.build(picks=[r['source_id'] for r, _ in got],
+                kmin='%04d' % ids['K'][0], kmax='%04d' % ids['K'][1],
+                smin='%04d' % ids['S'][0], smax='%04d' % ids['S'][1],
+                cmin='%04d' % ids['C'][0], cmax='%04d' % ids['C'][1],
+                emin='%04d' % ids['E'][0], emax='%04d' % ids['E'][1],
+                extra_note=note, inline=True, batch=batch_name)
+    (root / 'reply' / 'pending_prompt.md').write_text(t, encoding='utf-8')
+    group = {'batch': batch_name, 'picks': [r['source_id'] for r, _ in got],
+             'kmin': ids['K'][0], 'kmax': ids['K'][1], 'smin': ids['S'][0], 'smax': ids['S'][1],
+             'cmin': ids['C'][0], 'cmax': ids['C'][1], 'emin': ids['E'][0], 'emax': ids['E'][1]}
+    (root / 'reply' / 'pending_group.json').write_text(json.dumps(group, ensure_ascii=False, indent=1), encoding='utf-8')
+    print('取组成功: %s %s' % (batch_name, group['picks']))
+    print('号段 K%04d-%04d S%04d-%04d C%04d-%04d E%04d-%04d' % (
+        ids['K'][0], ids['K'][1], ids['S'][0], ids['S'][1],
+        ids['C'][0], ids['C'][1], ids['E'][0], ids['E'][1]))
+    print('提示已写: %s（%d 字符），备料 %d 份' % (root / 'reply' / 'pending_prompt.md', len(t), len(got)))
+    print('下一步：通读提示与备料原文，亲自抽取后把回复存成文件，再跑 入库 <回复文件>。')
+
+
+def cmd_store(name, reply):
+    root = shard_root(name)
+    gp = root / 'reply' / 'pending_group.json'
+    if not gp.is_file():
+        print('没有 pending 组，先跑 取组。')
+        raise SystemExit(8)
+    group = json.loads(gp.read_text(encoding='utf-8'))
+    rp = pathlib.Path(reply)
+    if not rp.is_file():
+        print('回复文件不存在: %s' % reply)
+        raise SystemExit(8)
+    r = subprocess.run(['python', '-X', 'utf8', str(OUT / '工具/Arena入库.py'), str(rp),
+                        '%04d' % group['emin'], '%04d' % group['emax'],
+                        str(root / 'stage'), ','.join(group['picks']), str(root / 'out')],
+                       capture_output=True, text=True, timeout=600, cwd=str(OUT))
+    out = (r.stdout or '') + (r.stderr or '')
+    print(out.strip()[-1200:])
+    if r.returncode != 0:
+        print('入库失败（已保留 pending，重做回复后可重试）：exit=%d' % r.returncode)
+        raise SystemExit(r.returncode)
+    try:
+        raw = rp.read_text(encoding='utf-8')
+        heads = len(re.findall(r'(?m)^[ \t]*(?:#{1,6}[ \t]*)?\*{0,2}(?:补充[ \t]*)?[KSC]-\d{4,5}\b', raw))
+    except Exception:
+        heads = 0
+    m = re.search(r'新卡 (\d+)', out or '')
+    patched = ('保存补丁' in (out or ''))
+    if heads and m and int(m.group(1)) == 0 and not patched:
+        print('!! 回复里有 %d 个卡片标题但新卡为 0：解析可能失败，不记账，检查回复格式后重试。' % heads)
+        raise SystemExit(9)
+    dst = root / 'out' / '07_审计与交付' / ('分片产出_%s.md' % '_'.join(sorted(group['picks'])))
+    shutil.copy2(str(rp), str(dst))
+    with open(root / 'groups_done.jsonl', 'a', encoding='utf-8') as fh:
+        fh.write(json.dumps({'batch': group['batch'], 'picks': group['picks'],
+                             'reply': dst.name}, ensure_ascii=False) + '\n')
+    gp.unlink(missing_ok=True)
+    print('入库成功，已归档 %s' % dst.name)
+
+
+def main():
+    if len(sys.argv) < 3:
+        raise SystemExit('用法: 分片_组.py <Codex|Claude> 取组 | 入库 <回复文件>')
+    name, op = sys.argv[1], sys.argv[2]
+    if op == '取组':
+        cmd_fetch(name)
+    elif op == '入库' and len(sys.argv) >= 4:
+        cmd_store(name, sys.argv[3])
+    else:
+        raise SystemExit('未知操作: %s' % op)
+
+
+if __name__ == '__main__':
+    main()

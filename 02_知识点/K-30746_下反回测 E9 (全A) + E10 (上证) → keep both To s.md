@@ -1,0 +1,3 @@
+# K-30746 下反回测: E9 (全A) + E10 (上证) → keep both? To save, keep only E10 (2179 上证下反回测20, which explicitly defines 下反回测 behavior) and note 2178 全A in 疑点? But 2178 全A quote is the origin of 下反回测 in this batch. Hmm. Alternatively keep E9 only and describe 上证 via C-2830? C-2830 has its own evidence. I'll keep both E9, E10 — it's a 2-lesson concept (but I'll present as one card; note in card that both come from different lessons' independent statements). → (2)
+
+K-30747 基本波动单元与箱体: E11, E12 (2) → could keep only E11 (definition: 触点数) since 触点定义 is core; E12 (下限漏/AC等长) is also core (结束条件). Keep both? Budget...

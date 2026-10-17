@@ -1,0 +1,40 @@
+{
+  "group": 11,
+  "picks": [
+    "SRC-000117",
+    "SRC-000026"
+  ],
+  "pending": {
+    "batch": "批192",
+    "picks": [
+      "SRC-000117",
+      "SRC-000026"
+    ],
+    "kmin": 40080,
+    "kmax": 40087,
+    "smin": 20050,
+    "smax": 20054,
+    "cmin": 20050,
+    "cmax": 20054,
+    "emin": 70200,
+    "emax": 70219
+  },
+  "reply": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\分片工作区\\Shard3\\out\\07_审计与交付\\回复_第11组_SRC-000117_SRC-000026.md",
+  "reply_sha256": "8c70ee03f578cf4129e630d6baeb5665b2c62fc5874bcba606539375e6f4f55b",
+  "official_path": "C:\\Users\\赵豪\\dsh\\交易知识体系汇编\\工具\\分片_组.py",
+  "official_sha256": "73b98d99953b62d6c952a4d6263b4b5a80d4d7686710dd38e7721a8110c28aa1",
+  "expected_cards": 3,
+  "expected_evidence": 4,
+  "official_exit_code": 0,
+  "stdout": "证据 4 | 验证通过 4 | 未通过 无\n  新建 C-20050 股票几不买思维导图与日线选股积分表80分及格教学复盘\n  新建 K-40080 股票几不买负面清单与日线选股积分表80分及格标准观察\n  新建 S-20050 排除股价小于20日线及小市值个股并按日线积分表80分选股方法\n卡片 63 | 新卡 3 | 证据入索引 4 | 悬空证据 0 | 悬空卡片 0 | 缺来源行 0 | 证据总 44\n",
+  "stderr": "",
+  "recorded_at": "2026-10-13T01:13:31.855062+08:00",
+  "validated": {
+    "evidence_total": 4,
+    "evidence_passed": 4,
+    "failed": "无",
+    "cards": 3,
+    "indexed": 4
+  },
+  "guard": "PASS"
+}
